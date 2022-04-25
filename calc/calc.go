@@ -2,6 +2,7 @@ package calc
 
 import (
 	"fmt"
+	"io"
 	"math"
 	"strconv"
 )
@@ -31,6 +32,25 @@ const (
 var numRunes = []rune{'0', '1', '2', '3', '4', '5', '6', '7', '8', '9'}
 var opRunes = []rune{'*', '/', '+', '-', '^'}
 
+var opPriorityMap = map[operation]int{
+	BRACKET:        BracketPriority,
+	EXPONENT:       ExponentPriority,
+	MULTIPLICATION: MultiplicationPriority,
+	DIVISION:       DivisionPriority,
+	ADDITION:       AdditionPriority,
+	SUBTRACTION:    SubtractionPriority,
+	NOOP:           NoopPriority,
+}
+
+var opNumArgs = map[operation]int{
+	EXPONENT:       2,
+	MULTIPLICATION: 2,
+	DIVISION:       2,
+	ADDITION:       2,
+	SUBTRACTION:    2,
+	NOOP:           1,
+}
+
 type calcTree struct {
 	op           operation
 	numVals      int
@@ -59,28 +79,11 @@ func validRune(r rune) (int, operation) {
 }
 
 func getOpPriority(op operation) int {
-	opPriorityMap := map[operation]int{
-		BRACKET:        BracketPriority,
-		EXPONENT:       ExponentPriority,
-		MULTIPLICATION: MultiplicationPriority,
-		DIVISION:       DivisionPriority,
-		ADDITION:       AdditionPriority,
-		SUBTRACTION:    SubtractionPriority,
-		NOOP:           NoopPriority,
-	}
 	return opPriorityMap[op]
 }
 
 func getOpNumValues(op operation) int {
-	opPriorityMap := map[operation]int{
-		EXPONENT:       2,
-		MULTIPLICATION: 2,
-		DIVISION:       2,
-		ADDITION:       2,
-		SUBTRACTION:    2,
-		NOOP:           1,
-	}
-	return opPriorityMap[op]
+	return opNumArgs[op]
 }
 
 func doOp(values []float64, op operation) float64 {
@@ -112,12 +115,21 @@ func doOp(values []float64, op operation) float64 {
 
 func (c *calcTree) calc() float64 {
 	values := make([]float64, c.numVals)
+	strValues := make([]string, c.numVals)
 	copy(values, c.values)
 	for i := 0; i < c.numVals; i++ {
 		if c.subCalcTrees[i] != nil {
 			values[i] = c.subCalcTrees[i].calc()
+			strValues[i] = fmt.Sprintf("[%f]", values[i])
+		} else {
+			strValues[i] = fmt.Sprintf("%f", values[i])
 		}
 	}
+
+	switch c.op {
+	case EXPONENT, MULTIPLICATION, DIVISION, ADDITION, SUBTRACTION:
+	}
+
 	return doOp(values, c.op)
 }
 
@@ -128,7 +140,7 @@ func (c *calcTree) stringVal() string {
 		if c.subCalcTrees[i] != nil {
 			values[i] = c.subCalcTrees[i].stringVal()
 		} else {
-			values[i] = fmt.Sprintf("%f", c.values[i])
+			values[i] = fmt.Sprintf("%.3f", c.values[i])
 		}
 	}
 
@@ -142,8 +154,8 @@ func (c *calcTree) stringVal() string {
 	return ""
 }
 
-func (c *calcTree) print() {
-	fmt.Println(c.stringVal())
+func (c *calcTree) print(w io.Writer) {
+	_, _ = fmt.Fprintln(w, c.stringVal())
 }
 
 func (c *calcTree) getRightest() *calcTree {
@@ -231,15 +243,17 @@ func parseCalcTree(calc string) *calcTree {
 			level := 0
 			for j := i + 1; j < len(calc); j++ {
 				nr := calc[j]
+
+				if nr == ')' && level == 0 {
+					prevBracketed = parseCalcTree(calc[i+1 : j])
+					skipUntil = j + 1
+					waitingBracket = true
+					break
+				}
+
 				if nr == '(' {
 					level += 1
 				} else if nr == ')' {
-					if level == 0 {
-						prevBracketed = parseCalcTree(calc[i+1 : j])
-						skipUntil = j + 1
-						waitingBracket = true
-						break
-					}
 					level -= 1
 				}
 			}
